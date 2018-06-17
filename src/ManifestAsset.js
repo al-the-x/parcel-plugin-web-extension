@@ -17,8 +17,16 @@ class ManifestAsset extends Asset {
             return new JSONAsset(...arguments)
         }
 
-        this.type = basename === 'manifest.json' ? 'json' : 'webmanifest'
+        this.type = 'json'
         this.isAstDirty = false
+        this.dependencyProcessors = {
+            background: this.processBackground,
+            content_scripts: this.processContentScripts,
+            web_accessible_resources: this.processWebAccessibleResources,
+            browser_action: this.processBrowserOrPageAction,
+            page_action: this.processBrowserOrPageAction,
+            icons: this.processIcons
+        }
     }
 
     parse(code) {
@@ -36,12 +44,8 @@ class ManifestAsset extends Asset {
         )
     }
 
-    processBackground(nodeName) {
-        if (nodeName !== 'background') {
-            return
-        }
-
-        const background = this.ast[nodeName]
+    processBackground() {
+        const background = this.ast.background
         if (Array.isArray(background.scripts)) {
             background.scripts = this.processMultipleDependencies(
                 background.scripts
@@ -54,12 +58,8 @@ class ManifestAsset extends Asset {
         }
     }
 
-    processContentScripts(nodeName) {
-        if (nodeName !== 'content_scripts') {
-            return
-        }
-
-        const contentScripts = this.ast[nodeName]
+    processContentScripts() {
+        const contentScripts = this.ast.content_scripts
         if (!Array.isArray(contentScripts)) {
             return
         }
@@ -75,27 +75,19 @@ class ManifestAsset extends Asset {
         }
     }
 
-    processWebAccessibleResources(nodeName) {
-        if (nodeName !== 'web_accessible_resources') {
-            return
-        }
-
-        const webAccessibleResources = this.ast[nodeName]
+    processWebAccessibleResources() {
+        const webAccessibleResources = this.ast.web_accessible_resources
         if (!Array.isArray(webAccessibleResources)) {
             return
         }
-        this.ast[nodeName] = this.processMultipleDependencies(
+        this.ast.web_accessible_resources = this.processMultipleDependencies(
             webAccessibleResources
         )
         this.isAstDirty = true
     }
 
-    processBrowserOrPageAction(nodeName) {
-        if (!['browser_action', 'page_action'].includes(nodeName)) {
-            return
-        }
-
-        const action = this.ast[nodeName]
+    processBrowserOrPageAction() {
+        const action = this.ast.browser_action || this.ast.page_action || {}
         if (action.default_popup) {
             action.default_popup = this.processSingleDependency(
                 action.default_popup
@@ -110,12 +102,8 @@ class ManifestAsset extends Asset {
         }
     }
 
-    processIcons(nodeName) {
-        if (nodeName !== 'icons') {
-            return
-        }
-
-        const icons = this.ast[nodeName]
+    processIcons() {
+        const icons = this.ast.icons
         for (const size of Object.keys(icons)) {
             icons[size] = this.processSingleDependency(icons[size])
             this.isAstDirty = true
@@ -124,11 +112,10 @@ class ManifestAsset extends Asset {
 
     collectDependenciesForWebExtension() {
         for (const nodeName of Object.keys(this.ast)) {
-            this.processBackground(nodeName)
-            this.processContentScripts(nodeName)
-            this.processWebAccessibleResources(nodeName)
-            this.processBrowserOrPageAction(nodeName)
-            this.processIcons(nodeName)
+            const processor = this.dependencyProcessors[nodeName]
+            if (processor) {
+                processor.call(this)
+            }
         }
     }
 
